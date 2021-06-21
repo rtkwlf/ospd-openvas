@@ -349,3 +349,5 @@ class NVTICache(BaseDB):
         )
         if md5sum:
             return md5sum
+
+        return None
