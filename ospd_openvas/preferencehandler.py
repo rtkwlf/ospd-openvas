@@ -89,6 +89,7 @@ def _from_bool_to_str(value: int) -> str:
     uses 1 and 0."""
     return 'yes' if value == 1 else 'no'
 
+
 def _get_vt_param_type(vt: Dict, vt_param_id: str) -> Optional[str]:
     """Return the type of the vt parameter from the vts dictionary."""
 
@@ -97,6 +98,7 @@ def _get_vt_param_type(vt: Dict, vt_param_id: str) -> Optional[str]:
         return vt_params_list[vt_param_id]["type"]
     return None
 
+
 def _get_vt_param_name(vt: Dict, vt_param_id: str) -> Optional[str]:
     """Return the type of the vt parameter from the vts dictionary."""
 
@@ -104,6 +106,7 @@ def _get_vt_param_name(vt: Dict, vt_param_id: str) -> Optional[str]:
     if vt_params_list.get(vt_param_id):
         return vt_params_list[vt_param_id]["name"]
     return None
+
 
 def set_alive_test_preference_list(alive_test) -> Dict:
     target_opt_prefs_list = {}
@@ -115,9 +118,7 @@ def set_alive_test_preference_list(alive_test) -> Dict:
         value = "yes"
     else:
         value = "no"
-    target_opt_prefs_list[
-        f'{OID_PING_HOST}:1:checkbox:Do a TCP ping'
-    ] = value
+    target_opt_prefs_list[f'{OID_PING_HOST}:1:checkbox:Do a TCP ping'] = value
 
     if (
         alive_test & AliveTest.ALIVE_TEST_TCP_SYN_SERVICE
@@ -127,8 +128,7 @@ def set_alive_test_preference_list(alive_test) -> Dict:
     else:
         value = "no"
     target_opt_prefs_list[
-        f'{OID_PING_HOST}:2:checkbox:'
-        'TCP ping tries also TCP-SYN ping'
+        f'{OID_PING_HOST}:2:checkbox:' 'TCP ping tries also TCP-SYN ping'
     ] = value
 
     if (alive_test & AliveTest.ALIVE_TEST_TCP_SYN_SERVICE) and not (
@@ -138,25 +138,20 @@ def set_alive_test_preference_list(alive_test) -> Dict:
     else:
         value = "no"
     target_opt_prefs_list[
-        f'{OID_PING_HOST}:7:checkbox:'
-        'TCP ping tries only TCP-SYN ping'
+        f'{OID_PING_HOST}:7:checkbox:' 'TCP ping tries only TCP-SYN ping'
     ] = value
 
     if alive_test & AliveTest.ALIVE_TEST_ICMP:
         value = "yes"
     else:
         value = "no"
-    target_opt_prefs_list[
-        f'{OID_PING_HOST}:3:checkbox:Do an ICMP ping'
-    ] = value
+    target_opt_prefs_list[f'{OID_PING_HOST}:3:checkbox:Do an ICMP ping'] = value
 
     if alive_test & AliveTest.ALIVE_TEST_ARP:
         value = "yes"
     else:
         value = "no"
-    target_opt_prefs_list[
-        f'{OID_PING_HOST}:4:checkbox:Use ARP'
-    ] = value
+    target_opt_prefs_list[f'{OID_PING_HOST}:4:checkbox:Use ARP'] = value
 
     if alive_test & AliveTest.ALIVE_TEST_CONSIDER_ALIVE:
         value = "no"
@@ -168,6 +163,7 @@ def set_alive_test_preference_list(alive_test) -> Dict:
     ] = value
 
     return target_opt_prefs_list
+
 
 class PreferenceHandler:
     def __init__(
@@ -249,18 +245,15 @@ class PreferenceHandler:
         the type founded.
         """
         if (
-            (param_type
+            param_type
             in [
                 'entry',
                 'password',
                 'radio',
                 'sshlogin',
             ]
-            and isinstance(vt_param_value, str)) or
-            (
-            param_type == 'checkbox' and
-            vt_param_value in ['0', '1'])
-        ):
+            and isinstance(vt_param_value, str)
+        ) or (param_type == 'checkbox' and vt_param_value in ['0', '1']):
             return True
         if param_type == 'file':
             try:
@@ -597,9 +590,7 @@ class PreferenceHandler:
             )
             logger.warning(warning)
         elif not port.isnumeric():
-            self.errors.append(
-                f"Port for SSH '{port}' is not a valid number."
-            )
+            self.errors.append(f"Port for SSH '{port}' is not a valid number.")
             return
         elif int(port) > 65535 or int(port) < 1:
             self.errors.append(
@@ -653,16 +644,12 @@ class PreferenceHandler:
         cred_prefs_list.append(
             OID_SSH_AUTH
             + ':7:'
-            + 'entry:SSH privilege login name:|||{0}'.format(
-                priv_username
-            )
+            + 'entry:SSH privilege login name:|||{0}'.format(priv_username)
         )
         cred_prefs_list.append(
             OID_SSH_AUTH
             + ':8:'
-            + 'password:SSH privilege password:|||{0}'.format(
-                priv_password
-            )
+            + 'password:SSH privilege password:|||{0}'.format(priv_password)
         )
 
     def check_snmp(self, cred_params, cred_prefs_list) -> None:
@@ -679,9 +666,7 @@ class PreferenceHandler:
                 + " password also has to be empty."
             )
             return
-        if (
-            privacy_algorithm not in ("aes", "des", '')
-        ):
+        if privacy_algorithm not in ("aes", "des", ''):
             self.errors.append(
                 "Unknown privacy algorithm used: "
                 + privacy_algorithm
@@ -695,9 +680,7 @@ class PreferenceHandler:
                 + " Use 'md5' or 'sha1'."
             )
             return
-        if (
-            auth_algorithm not in ["md5", "sha1"]
-        ):
+        if auth_algorithm not in ["md5", "sha1"]:
             self.errors.append(
                 "Unknown authentication algorithm: "
                 + auth_algorithm
@@ -740,7 +723,6 @@ class PreferenceHandler:
             + '{0}'.format(privacy_algorithm)
         )
 
-
     def build_credentials_as_prefs(self, credentials: Dict) -> List[str]:
         """Parse the credential dictionary.
         Arguments:
@@ -761,8 +743,8 @@ class PreferenceHandler:
             if service == 'ssh':
                 # For ssh check the Port
                 self.check_ssh(
-                    cred_params=cred_params,
-                    cred_prefs_list=cred_prefs_list)
+                    cred_params=cred_params, cred_prefs_list=cred_prefs_list
+                )
             # Check servic smb
             elif service == 'smb':
                 cred_prefs_list.append(
@@ -793,8 +775,8 @@ class PreferenceHandler:
             # Check service snmp
             elif service == 'snmp':
                 self.check_snmp(
-                    cred_params=cred_params,
-                    cred_prefs_list=cred_prefs_list)
+                    cred_params=cred_params, cred_prefs_list=cred_prefs_list
+                )
 
             elif service:
                 self.errors.append(

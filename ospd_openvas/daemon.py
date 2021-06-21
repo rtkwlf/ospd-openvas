@@ -359,9 +359,8 @@ def safe_int(value: str) -> Optional[int]:
     except (ValueError, TypeError):
         return None
 
-def is_openvas_process_alive(
-    kbdb: BaseDB, ovas_pid: str, scan_id: str
-) -> bool:
+
+def is_openvas_process_alive(kbdb: BaseDB, ovas_pid: str, scan_id: str) -> bool:
     parent_exists = True
     parent = None
     try:
@@ -1018,9 +1017,7 @@ class OSPDopenvas(OSPDaemon):
 
             all_hosts[current_host] = host_prog
 
-            if (
-                host_prog in (ScanProgress.DEAD_HOST, ScanProgress.FINISHED)
-            ):
+            if host_prog in (ScanProgress.DEAD_HOST, ScanProgress.FINISHED):
                 finished_hosts.append(current_host)
 
             logger.debug(
@@ -1204,8 +1201,6 @@ class OSPDopenvas(OSPDaemon):
             )
 
         return len(res_list) > 0
-
-
 
     def stop_scan_cleanup(  # pylint: disable=arguments-differ
         self, scan_id: str
