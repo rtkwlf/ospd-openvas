@@ -34,7 +34,7 @@ from ospd.protocol import OspRequest
 from tests.dummydaemon import DummyDaemon
 from tests.helper import assert_called_once
 
-from ospd_openvas.daemon import OSPD_PARAMS, OpenVasVtsFilter
+from ospd_openvas.daemon import OSPD_PARAMS, OpenVasVtsFilter, is_openvas_process_alive
 from ospd_openvas.openvas import Openvas
 
 OSPD_PARAMS_OUT = {
@@ -879,7 +879,7 @@ class TestOspdOpenvas(TestCase):
         w = DummyDaemon()
         # mock_psutil = MockPsutil.return_value
         mock_db.scan_is_stopped.return_value = True
-        ret = w.is_openvas_process_alive(mock_db, '1234', 'a1-b2-c3-d4')
+        ret = is_openvas_process_alive(mock_db, '1234', 'a1-b2-c3-d4')
 
         self.assertTrue(ret)
 
@@ -889,7 +889,7 @@ class TestOspdOpenvas(TestCase):
         w = DummyDaemon()
         mock_psutil.side_effect = TypeError
         mock_db.scan_is_stopped.return_value = False
-        ret = w.is_openvas_process_alive(mock_db, '1234', 'a1-b2-c3-d3')
+        ret = is_openvas_process_alive(mock_db, '1234', 'a1-b2-c3-d3')
 
         self.assertFalse(ret)
 
