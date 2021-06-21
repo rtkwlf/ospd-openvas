@@ -359,6 +359,38 @@ def safe_int(value: str) -> Optional[int]:
     except (ValueError, TypeError):
         return None
 
+def is_openvas_process_alive(
+    kbdb: BaseDB, ovas_pid: str, scan_id: str
+) -> bool:
+    parent_exists = True
+    parent = None
+    try:
+        parent = psutil.Process(int(ovas_pid))
+    except psutil.NoSuchProcess:
+        logger.debug('Process with pid %s already stopped', ovas_pid)
+        parent_exists = False
+    except TypeError:
+        logger.debug(
+            'Scan with ID %s never started and stopped unexpectedly',
+            scan_id,
+        )
+        parent_exists = False
+
+    is_zombie = False
+    if parent and parent.status() == psutil.STATUS_ZOMBIE:
+        logger.debug(
+            ' %s: OpenVAS process is a zombie process',
+            scan_id,
+        )
+        is_zombie = True
+
+    if (not parent_exists or is_zombie) and kbdb:
+        if kbdb and kbdb.scan_is_stopped(scan_id):
+            return True
+        return False
+
+    return True
+
 
 class OpenVasVtsFilter(VtsFilter):
 
@@ -413,9 +445,7 @@ class OpenVasVtsFilter(VtsFilter):
                 elem_val = vt.get(element)
                 val = self.format_filter_value(element, elem_val)
 
-                if self.filter_operator[oper](val, filter_val):
-                    continue
-                else:
+                if not self.filter_operator[oper](val, filter_val):
                     vt_oid_list.remove(vt_oid)
 
         return vt_oid_list
@@ -979,7 +1009,7 @@ class OSPDopenvas(OSPDaemon):
             try:
                 if float(total) == 0:
                     continue
-                elif float(total) == ScanProgress.DEAD_HOST:
+                if float(total) == ScanProgress.DEAD_HOST:
                     host_prog = ScanProgress.DEAD_HOST
                 else:
                     host_prog = int((float(launched) / float(total)) * 100)
@@ -989,8 +1019,7 @@ class OSPDopenvas(OSPDaemon):
             all_hosts[current_host] = host_prog
 
             if (
-                host_prog == ScanProgress.DEAD_HOST
-                or host_prog == ScanProgress.FINISHED
+                host_prog in (ScanProgress.DEAD_HOST, ScanProgress.FINISHED)
             ):
                 finished_hosts.append(current_host)
 
@@ -1018,20 +1047,19 @@ class OSPDopenvas(OSPDaemon):
         """
         results = []
         for res in all_results:
-            if not res:
-                continue
-            result = {}
-            msg = res.split('|||')
-            result["type"] = msg[0]
-            result["host_ip"] = msg[1]
-            result["hostname"] = msg[2]
-            result["port"] = msg[3]
-            result["OID"] = msg[4]
-            result["value"] = msg[5]
-            if len(msg) > 6:
-                result["uri"] = msg[6]
+            if res:
+                result = {}
+                msg = res.split('|||')
+                result["type"] = msg[0]
+                result["host_ip"] = msg[1]
+                result["hostname"] = msg[2]
+                result["port"] = msg[3]
+                result["OID"] = msg[4]
+                result["value"] = msg[5]
+                if len(msg) > 6:
+                    result["uri"] = msg[6]
 
-            results.append(result)
+                results.append(result)
 
         return self.report_openvas_results(results, scan_id)
 
@@ -1043,131 +1071,119 @@ class OSPDopenvas(OSPDaemon):
         """Add results given as dictionaries into the scan table."""
 
         vthelper = VtHelper(self.nvti)
-
         res_list = ResultList()
         total_dead = 0
+
         for res in results:
-            if not res:
-                continue
-
-            roid = res["OID"].strip()
-            rqod = ''
-            rname = ''
-            current_host = res["host_ip"].strip() if res["host_ip"] else ''
-            rhostname = res["hostname"].strip() if res["hostname"] else ''
-            host_is_dead = (
-                "Host dead" in res["value"] or res["type"] == "DEADHOST"
-            )
-            host_deny = "Host access denied" in res["value"]
-            start_end_msg = (
-                res["type"] == "HOST_START" or res["type"] == "HOST_END"
-            )
-            host_count = res["type"] == "HOSTS_COUNT"
-            vt_aux = None
-
-            # URI is optional and containing must be checked
-            ruri = res["uri"] if "uri" in res else ""
-
-            if (
-                roid
-                and not host_is_dead
-                and not host_deny
-                and not start_end_msg
-                and not host_count
-            ):
-                vt_aux = vthelper.get_single_vt(roid)
-
-            if (
-                not vt_aux
-                and not host_is_dead
-                and not host_deny
-                and not start_end_msg
-                and not host_count
-            ):
-                logger.warning('Invalid VT oid %s for a result', roid)
-
-            if vt_aux:
-                if vt_aux.get('qod_type'):
-                    qod_t = vt_aux.get('qod_type')
-                    rqod = self.nvti.QOD_TYPES[qod_t]
-                elif vt_aux.get('qod'):
-                    rqod = vt_aux.get('qod')
-
-                rname = vt_aux.get('name')
-
-            if res["type"] == 'ERRMSG':
-                res_list.add_scan_error_to_list(
-                    host=current_host,
-                    hostname=rhostname,
-                    name=rname,
-                    value=res["value"],
-                    port=res["port"],
-                    test_id=roid,
-                    uri=ruri,
+            if res:
+                roid = res["OID"].strip()
+                rqod = ''
+                rname = ''
+                current_host = res["host_ip"].strip() if res["host_ip"] else ''
+                rhostname = res["hostname"].strip() if res["hostname"] else ''
+                host_is_dead = (
+                    "Host dead" in res["value"] or res["type"] == "DEADHOST"
                 )
-
-            elif res["type"] == 'HOST_START' or res["type"] == 'HOST_END':
-                res_list.add_scan_log_to_list(
-                    host=current_host,
-                    name=res["type"],
-                    value=res["value"],
+                host_deny = "Host access denied" in res["value"]
+                start_end_msg = (
+                    res["type"] == "HOST_START" or res["type"] == "HOST_END"
                 )
+                host_count = res["type"] == "HOSTS_COUNT"
+                vt_aux = None
 
-            elif res["type"] == 'LOG':
-                res_list.add_scan_log_to_list(
-                    host=current_host,
-                    hostname=rhostname,
-                    name=rname,
-                    value=res["value"],
-                    port=res["port"],
-                    qod=rqod,
-                    test_id=roid,
-                    uri=ruri,
-                )
+                # URI is optional and containing must be checked
+                ruri = res["uri"] if "uri" in res else ""
 
-            elif res["type"] == 'HOST_DETAIL':
-                res_list.add_scan_host_detail_to_list(
-                    host=current_host,
-                    hostname=rhostname,
-                    name=rname,
-                    value=res["value"],
-                    uri=ruri,
-                )
+                if (
+                    not host_is_dead
+                    and not host_deny
+                    and not start_end_msg
+                    and not host_count
+                ):
+                    if roid:
+                        vt_aux = vthelper.get_single_vt(roid)
+                    if not vt_aux:
+                        logger.warning('Invalid VT oid %s for a result', roid)
+                    else:
+                        if vt_aux.get('qod_type'):
+                            rqod = self.nvti.QOD_TYPES[vt_aux.get('qod_type')]
+                        elif vt_aux.get('qod'):
+                            rqod = vt_aux.get('qod')
+                        rname = vt_aux.get('name')
 
-            elif res["type"] == 'ALARM':
-                rseverity = vthelper.get_severity_score(vt_aux)
-                res_list.add_scan_alarm_to_list(
-                    host=current_host,
-                    hostname=rhostname,
-                    name=rname,
-                    value=res["value"],
-                    port=res["port"],
-                    test_id=roid,
-                    severity=rseverity,
-                    qod=rqod,
-                    uri=ruri,
-                )
-
-            # To process non-scanned dead hosts when
-            # test_alive_host_only in openvas is enable
-            elif res["type"] == 'DEADHOST':
-                try:
-                    total_dead = int(res["value"])
-                except TypeError:
-                    logger.debug('Error processing dead host count')
-
-            # To update total host count
-            if res["type"] == 'HOSTS_COUNT':
-                try:
-                    count_total = int(res["value"])
-                    logger.debug(
-                        '%s: Set total hosts counted by OpenVAS: %d',
-                        scan_id,
-                        count_total,
+                if res["type"] == 'ERRMSG':
+                    res_list.add_scan_error_to_list(
+                        host=current_host,
+                        hostname=rhostname,
+                        name=rname,
+                        value=res["value"],
+                        port=res["port"],
+                        test_id=roid,
+                        uri=ruri,
                     )
-                    self.set_scan_total_hosts(scan_id, count_total)
-                except TypeError:
-                    logger.debug('Error processing total host count')
+
+                elif res["type"] in ['HOST_START', 'HOST_END']:
+                    res_list.add_scan_log_to_list(
+                        host=current_host,
+                        name=res["type"],
+                        value=res["value"],
+                    )
+
+                elif res["type"] == 'LOG':
+                    res_list.add_scan_log_to_list(
+                        host=current_host,
+                        hostname=rhostname,
+                        name=rname,
+                        value=res["value"],
+                        port=res["port"],
+                        qod=rqod,
+                        test_id=roid,
+                        uri=ruri,
+                    )
+
+                elif res["type"] == 'HOST_DETAIL':
+                    res_list.add_scan_host_detail_to_list(
+                        host=current_host,
+                        hostname=rhostname,
+                        name=rname,
+                        value=res["value"],
+                        uri=ruri,
+                    )
+
+                elif res["type"] == 'ALARM':
+                    rseverity = vthelper.get_severity_score(vt_aux)
+                    res_list.add_scan_alarm_to_list(
+                        host=current_host,
+                        hostname=rhostname,
+                        name=rname,
+                        value=res["value"],
+                        port=res["port"],
+                        test_id=roid,
+                        severity=rseverity,
+                        qod=rqod,
+                        uri=ruri,
+                    )
+
+                # To process non-scanned dead hosts when
+                # test_alive_host_only in openvas is enable
+                elif res["type"] == 'DEADHOST':
+                    try:
+                        total_dead = int(res["value"])
+                    except TypeError:
+                        logger.debug('Error processing dead host count')
+
+                # To update total host count
+                if res["type"] == 'HOSTS_COUNT':
+                    try:
+                        count_total = int(res["value"])
+                        logger.debug(
+                            '%s: Set total hosts counted by OpenVAS: %d',
+                            scan_id,
+                            count_total,
+                        )
+                        self.set_scan_total_hosts(scan_id, count_total)
+                    except TypeError:
+                        logger.debug('Error processing total host count')
 
         # Insert result batch into the scan collection table.
         if len(res_list):
@@ -1189,41 +1205,11 @@ class OSPDopenvas(OSPDaemon):
 
         return len(res_list) > 0
 
-    def is_openvas_process_alive(
-        self, kbdb: BaseDB, ovas_pid: str, scan_id: str
-    ) -> bool:
-        parent_exists = True
-        parent = None
-        try:
-            parent = psutil.Process(int(ovas_pid))
-        except psutil.NoSuchProcess:
-            logger.debug('Process with pid %s already stopped', ovas_pid)
-            parent_exists = False
-        except TypeError:
-            logger.debug(
-                'Scan with ID %s never started and stopped unexpectedly',
-                scan_id,
-            )
-            parent_exists = False
 
-        is_zombie = False
-        if parent and parent.status() == psutil.STATUS_ZOMBIE:
-            logger.debug(
-                ' %s: OpenVAS process is a zombie process',
-                scan_id,
-            )
-            is_zombie = True
-
-        if (not parent_exists or is_zombie) and kbdb:
-            if kbdb and kbdb.scan_is_stopped(scan_id):
-                return True
-            return False
-
-        return True
 
     def stop_scan_cleanup(  # pylint: disable=arguments-differ
         self, scan_id: str
-    ):
+    ) -> None:
         """Set a key in redis to indicate the wrapper is stopped.
         It is done through redis because it is a new multiprocess
         instance and it is not possible to reach the variables
@@ -1258,7 +1244,7 @@ class OSPDopenvas(OSPDaemon):
                         'Not possible to stop scan process: %s.',
                         parent,
                     )
-                    return False
+                    return
 
                 logger.debug('Stopping process: %s', parent)
 
@@ -1374,7 +1360,7 @@ class OSPDopenvas(OSPDaemon):
         got_results = False
         while True:
             target_is_finished = kbdb.target_is_finished(scan_id)
-            openvas_process_is_alive = self.is_openvas_process_alive(
+            openvas_process_is_alive = is_openvas_process_alive(
                 kbdb, ovas_pid, scan_id
             )
             if not target_is_finished and not openvas_process_is_alive:
