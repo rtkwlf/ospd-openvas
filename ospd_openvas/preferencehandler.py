@@ -89,6 +89,85 @@ def _from_bool_to_str(value: int) -> str:
     uses 1 and 0."""
     return 'yes' if value == 1 else 'no'
 
+def _get_vt_param_type(vt: Dict, vt_param_id: str) -> Optional[str]:
+    """Return the type of the vt parameter from the vts dictionary."""
+
+    vt_params_list = vt.get("vt_params")
+    if vt_params_list.get(vt_param_id):
+        return vt_params_list[vt_param_id]["type"]
+    return None
+
+def _get_vt_param_name(vt: Dict, vt_param_id: str) -> Optional[str]:
+    """Return the type of the vt parameter from the vts dictionary."""
+
+    vt_params_list = vt.get("vt_params")
+    if vt_params_list.get(vt_param_id):
+        return vt_params_list[vt_param_id]["name"]
+    return None
+
+def set_alive_test_preference_list(alive_test) -> Dict:
+    target_opt_prefs_list = {}
+
+    if (
+        alive_test & AliveTest.ALIVE_TEST_TCP_ACK_SERVICE
+        or alive_test & AliveTest.ALIVE_TEST_TCP_SYN_SERVICE
+    ):
+        value = "yes"
+    else:
+        value = "no"
+    target_opt_prefs_list[
+        f'{OID_PING_HOST}:1:checkbox:Do a TCP ping'
+    ] = value
+
+    if (
+        alive_test & AliveTest.ALIVE_TEST_TCP_SYN_SERVICE
+        and alive_test & AliveTest.ALIVE_TEST_TCP_ACK_SERVICE
+    ):
+        value = "yes"
+    else:
+        value = "no"
+    target_opt_prefs_list[
+        f'{OID_PING_HOST}:2:checkbox:'
+        'TCP ping tries also TCP-SYN ping'
+    ] = value
+
+    if (alive_test & AliveTest.ALIVE_TEST_TCP_SYN_SERVICE) and not (
+        alive_test & AliveTest.ALIVE_TEST_TCP_ACK_SERVICE
+    ):
+        value = "yes"
+    else:
+        value = "no"
+    target_opt_prefs_list[
+        f'{OID_PING_HOST}:7:checkbox:'
+        'TCP ping tries only TCP-SYN ping'
+    ] = value
+
+    if alive_test & AliveTest.ALIVE_TEST_ICMP:
+        value = "yes"
+    else:
+        value = "no"
+    target_opt_prefs_list[
+        f'{OID_PING_HOST}:3:checkbox:Do an ICMP ping'
+    ] = value
+
+    if alive_test & AliveTest.ALIVE_TEST_ARP:
+        value = "yes"
+    else:
+        value = "no"
+    target_opt_prefs_list[
+        f'{OID_PING_HOST}:4:checkbox:Use ARP'
+    ] = value
+
+    if alive_test & AliveTest.ALIVE_TEST_CONSIDER_ALIVE:
+        value = "no"
+    else:
+        value = "yes"
+    target_opt_prefs_list[
+        f'{OID_PING_HOST}:5:checkbox:'
+        'Mark unrechable Hosts as dead (not scanning)'
+    ] = value
+
+    return target_opt_prefs_list
 
 class PreferenceHandler:
     def __init__(
@@ -164,56 +243,39 @@ class PreferenceHandler:
 
         return vts_list
 
-    def _get_vt_param_type(self, vt: Dict, vt_param_id: str) -> Optional[str]:
-        """Return the type of the vt parameter from the vts dictionary."""
-
-        vt_params_list = vt.get("vt_params")
-        if vt_params_list.get(vt_param_id):
-            return vt_params_list[vt_param_id]["type"]
-        return None
-
-    def _get_vt_param_name(self, vt: Dict, vt_param_id: str) -> Optional[str]:
-        """Return the type of the vt parameter from the vts dictionary."""
-
-        vt_params_list = vt.get("vt_params")
-        if vt_params_list.get(vt_param_id):
-            return vt_params_list[vt_param_id]["name"]
-        return None
-
     @staticmethod
-    def check_param_type(vt_param_value: str, param_type: str) -> Optional[int]:
+    def check_param_type(vt_param_value: str, param_type: str) -> bool:
         """Check if the value of a vt parameter matches with
         the type founded.
         """
         if (
-            param_type
+            (param_type
             in [
                 'entry',
                 'password',
                 'radio',
                 'sshlogin',
             ]
-            and isinstance(vt_param_value, str)
+            and isinstance(vt_param_value, str)) or
+            (
+            param_type == 'checkbox' and
+            vt_param_value in ['0', '1'])
         ):
-            return None
-        elif param_type == 'checkbox' and (
-            vt_param_value == '0' or vt_param_value == '1'
-        ):
-            return None
-        elif param_type == 'file':
+            return True
+        if param_type == 'file':
             try:
                 b64decode(vt_param_value.encode())
             except (binascii.Error, AttributeError, TypeError):
-                return 1
-            return None
-        elif param_type == 'integer':
+                return False
+            return True
+        if param_type == 'integer':
             try:
                 int(vt_param_value)
             except ValueError:
-                return 1
-            return None
+                return False
+            return True
 
-        return 1
+        return False
 
     def _process_vts(
         self,
@@ -241,8 +303,8 @@ class PreferenceHandler:
 
             vts_list.append(vtid)
             for vt_param_id, vt_param_value in vt_params.items():
-                param_type = self._get_vt_param_type(vt, vt_param_id)
-                param_name = self._get_vt_param_name(vt, vt_param_id)
+                param_type = _get_vt_param_type(vt, vt_param_id)
+                param_name = _get_vt_param_name(vt, vt_param_id)
 
                 if not param_type or not param_name:
                     logger.debug(
@@ -258,7 +320,7 @@ class PreferenceHandler:
                 else:
                     type_aux = param_type
 
-                if self.check_param_type(vt_param_value, type_aux):
+                if not self.check_param_type(vt_param_value, type_aux):
                     logger.debug(
                         'The VT parameter %s for %s could not be set. '
                         'Expected %s type for parameter value %s',
@@ -322,103 +384,44 @@ class PreferenceHandler:
             A dict with the target options related to alive test method
             in string format to be added to the redis KB.
         """
-        target_opt_prefs_list = {}
+
+        if not target_options:
+            return {}
+
         alive_test = None
+        # Alive test specified as bit field.
+        alive_test = target_options.get('alive_test')
+        # Alive test specified as individual methods.
+        alive_test_methods = target_options.get('alive_test_methods')
+        # alive_test takes precedence over alive_test_methods
+        if alive_test is None and alive_test_methods:
+            alive_test = alive_test_methods_to_bit_field(
+                icmp=target_options.get('icmp') == '1',
+                tcp_syn=target_options.get('tcp_syn') == '1',
+                tcp_ack=target_options.get('tcp_ack') == '1',
+                arp=target_options.get('arp') == '1',
+                consider_alive=target_options.get('consider_alive') == '1',
+            )
 
-        if target_options:
-            # Alive test specified as bit field.
-            alive_test = target_options.get('alive_test')
-            # Alive test specified as individual methods.
-            alive_test_methods = target_options.get('alive_test_methods')
-            # alive_test takes precedence over alive_test_methods
-            if alive_test is None and alive_test_methods:
-                alive_test = alive_test_methods_to_bit_field(
-                    icmp=target_options.get('icmp') == '1',
-                    tcp_syn=target_options.get('tcp_syn') == '1',
-                    tcp_ack=target_options.get('tcp_ack') == '1',
-                    arp=target_options.get('arp') == '1',
-                    consider_alive=target_options.get('consider_alive') == '1',
-                )
+        if not alive_test:
+            return {}
 
-        if target_options and alive_test:
-            try:
-                alive_test = int(alive_test)
-            except ValueError:
-                logger.debug(
-                    'Alive test settings not applied. '
-                    'Invalid alive test value %s',
-                    target_options.get('alive_test'),
-                )
-                return target_opt_prefs_list
+        try:
+            alive_test = int(alive_test)
+        except ValueError:
+            logger.debug(
+                'Alive test settings not applied. '
+                'Invalid alive test value %s',
+                target_options.get('alive_test'),
+            )
+            return {}
 
-            # No alive test or wrong value, uses the default
-            # preferences sent by the client.
-            if alive_test < 1 or alive_test > 31:
-                return target_opt_prefs_list
+        # No alive test or wrong value, uses the default
+        # preferences sent by the client.
+        if alive_test < 1 or alive_test > 31:
+            return {}
 
-            if (
-                alive_test & AliveTest.ALIVE_TEST_TCP_ACK_SERVICE
-                or alive_test & AliveTest.ALIVE_TEST_TCP_SYN_SERVICE
-            ):
-                value = "yes"
-            else:
-                value = "no"
-            target_opt_prefs_list[
-                OID_PING_HOST + ':1:checkbox:' + 'Do a TCP ping'
-            ] = value
-
-            if (
-                alive_test & AliveTest.ALIVE_TEST_TCP_SYN_SERVICE
-                and alive_test & AliveTest.ALIVE_TEST_TCP_ACK_SERVICE
-            ):
-                value = "yes"
-            else:
-                value = "no"
-            target_opt_prefs_list[
-                OID_PING_HOST
-                + ':2:checkbox:'
-                + 'TCP ping tries also TCP-SYN ping'
-            ] = value
-
-            if (alive_test & AliveTest.ALIVE_TEST_TCP_SYN_SERVICE) and not (
-                alive_test & AliveTest.ALIVE_TEST_TCP_ACK_SERVICE
-            ):
-                value = "yes"
-            else:
-                value = "no"
-            target_opt_prefs_list[
-                OID_PING_HOST
-                + ':7:checkbox:'
-                + 'TCP ping tries only TCP-SYN ping'
-            ] = value
-
-            if alive_test & AliveTest.ALIVE_TEST_ICMP:
-                value = "yes"
-            else:
-                value = "no"
-            target_opt_prefs_list[
-                OID_PING_HOST + ':3:checkbox:' + 'Do an ICMP ping'
-            ] = value
-
-            if alive_test & AliveTest.ALIVE_TEST_ARP:
-                value = "yes"
-            else:
-                value = "no"
-            target_opt_prefs_list[
-                OID_PING_HOST + ':4:checkbox:' + 'Use ARP'
-            ] = value
-
-            if alive_test & AliveTest.ALIVE_TEST_CONSIDER_ALIVE:
-                value = "no"
-            else:
-                value = "yes"
-            target_opt_prefs_list[
-                OID_PING_HOST
-                + ':5:checkbox:'
-                + 'Mark unrechable Hosts as dead (not scanning)'
-            ] = value
-
-        return target_opt_prefs_list
+        return set_alive_test_preference_list(alive_test=alive_test)
 
     def prepare_alive_test_option_for_openvas(self):
         """Set alive test option. Overwrite the scan config settings."""
@@ -579,6 +582,165 @@ class PreferenceHandler:
         if prefs_val:
             self.kbdb.add_scan_preferences(self.scan_id, prefs_val)
 
+    def check_ssh(self, cred_params, cred_prefs_list) -> None:
+        port = cred_params.get('port', '22')
+        cred_type = cred_params.get('type', '')
+        username = cred_params.get('username', '')
+        password = cred_params.get('password', '')
+        priv_username = cred_params.get('priv_username', '')
+        priv_password = cred_params.get('priv_password', '')
+        if not port:
+            port = '22'
+            warning = (
+                "Missing port number for ssh credentials."
+                + " Using default port 22."
+            )
+            logger.warning(warning)
+        elif not port.isnumeric():
+            self.errors.append(
+                f"Port for SSH '{port}' is not a valid number."
+            )
+            return
+        elif int(port) > 65535 or int(port) < 1:
+            self.errors.append(
+                f"Port for SSH is out of range (1-65535): {port}"
+            )
+            return
+        # For ssh check the credential type
+        if cred_type == 'up':
+            cred_prefs_list.append(
+                OID_SSH_AUTH
+                + ':3:'
+                + 'password:SSH password '
+                + '(unsafe!):|||{0}'.format(password)
+            )
+        elif cred_type == 'usk':
+            private = cred_params.get('private', '')
+            cred_prefs_list.append(
+                OID_SSH_AUTH
+                + ':2:'
+                + 'password:SSH key passphrase:|||'
+                + '{0}'.format(password)
+            )
+            cred_prefs_list.append(
+                OID_SSH_AUTH
+                + ':4:'
+                + 'file:SSH private key:|||'
+                + '{0}'.format(private)
+            )
+        elif cred_type:
+            self.errors.append(
+                "Unknown Credential Type for SSH: "
+                + cred_type
+                + ". Use 'up' for Username + Password"
+                + " or 'usk' for Username + SSH Key."
+            )
+            return
+        else:
+            self.errors.append(
+                "Missing Credential Type for SSH."
+                + " Use 'up' for Username + Password"
+                + " or 'usk' for Username + SSH Key."
+            )
+            return
+        cred_prefs_list.append('auth_port_ssh|||' + '{0}'.format(port))
+        cred_prefs_list.append(
+            OID_SSH_AUTH
+            + ':1:'
+            + 'entry:SSH login '
+            + 'name:|||{0}'.format(username)
+        )
+        cred_prefs_list.append(
+            OID_SSH_AUTH
+            + ':7:'
+            + 'entry:SSH privilege login name:|||{0}'.format(
+                priv_username
+            )
+        )
+        cred_prefs_list.append(
+            OID_SSH_AUTH
+            + ':8:'
+            + 'password:SSH privilege password:|||{0}'.format(
+                priv_password
+            )
+        )
+
+    def check_snmp(self, cred_params, cred_prefs_list) -> None:
+        community = cred_params.get('community', '')
+        auth_algorithm = cred_params.get('auth_algorithm', '')
+        privacy_password = cred_params.get('privacy_password', '')
+        privacy_algorithm = cred_params.get('privacy_algorithm', '')
+        username = cred_params.get('username', '')
+        password = cred_params.get('password', '')
+
+        if not privacy_algorithm and privacy_password:
+            self.errors.append(
+                "When no privacy algorithm is used, the privacy"
+                + " password also has to be empty."
+            )
+            return
+        if (
+            privacy_algorithm not in ("aes", "des", '')
+        ):
+            self.errors.append(
+                "Unknown privacy algorithm used: "
+                + privacy_algorithm
+                + ". Use 'aes', 'des' or '' (none)."
+            )
+            return
+
+        if not auth_algorithm:
+            self.errors.append(
+                "Missing authentication algorithm for SNMP."
+                + " Use 'md5' or 'sha1'."
+            )
+            return
+        if (
+            auth_algorithm not in ["md5", "sha1"]
+        ):
+            self.errors.append(
+                "Unknown authentication algorithm: "
+                + auth_algorithm
+                + ". Use 'md5' or 'sha1'."
+            )
+            return
+
+        cred_prefs_list.append(
+            OID_SNMP_AUTH
+            + ':1:'
+            + 'password:SNMP Community:|||'
+            + '{0}'.format(community)
+        )
+        cred_prefs_list.append(
+            OID_SNMP_AUTH
+            + ':2:'
+            + 'entry:SNMPv3 Username:|||'
+            + '{0}'.format(username)
+        )
+        cred_prefs_list.append(
+            OID_SNMP_AUTH + ':3:'
+            'password:SNMPv3 Password:|||' + '{0}'.format(password)
+        )
+        cred_prefs_list.append(
+            OID_SNMP_AUTH
+            + ':4:'
+            + 'radio:SNMPv3 Authentication Algorithm:|||'
+            + '{0}'.format(auth_algorithm)
+        )
+        cred_prefs_list.append(
+            OID_SNMP_AUTH
+            + ':5:'
+            + 'password:SNMPv3 Privacy Password:|||'
+            + '{0}'.format(privacy_password)
+        )
+        cred_prefs_list.append(
+            OID_SNMP_AUTH
+            + ':6:'
+            + 'radio:SNMPv3 Privacy Algorithm:|||'
+            + '{0}'.format(privacy_algorithm)
+        )
+
+
     def build_credentials_as_prefs(self, credentials: Dict) -> List[str]:
         """Parse the credential dictionary.
         Arguments:
@@ -592,91 +754,15 @@ class PreferenceHandler:
         for credential in credentials.items():
             service = credential[0]
             cred_params = credentials.get(service)
-            cred_type = cred_params.get('type', '')
             username = cred_params.get('username', '')
             password = cred_params.get('password', '')
 
             # Check service ssh
             if service == 'ssh':
                 # For ssh check the Port
-                port = cred_params.get('port', '22')
-                priv_username = cred_params.get('priv_username', '')
-                priv_password = cred_params.get('priv_password', '')
-                if not port:
-                    port = '22'
-                    warning = (
-                        "Missing port number for ssh credentials."
-                        + " Using default port 22."
-                    )
-                    logger.warning(warning)
-                elif not port.isnumeric():
-                    self.errors.append(
-                        "Port for SSH '" + port + "' is not a valid number."
-                    )
-                    continue
-                elif int(port) > 65535 or int(port) < 1:
-                    self.errors.append(
-                        "Port for SSH is out of range (1-65535): " + port
-                    )
-                    continue
-                # For ssh check the credential type
-                if cred_type == 'up':
-                    cred_prefs_list.append(
-                        OID_SSH_AUTH
-                        + ':3:'
-                        + 'password:SSH password '
-                        + '(unsafe!):|||{0}'.format(password)
-                    )
-                elif cred_type == 'usk':
-                    private = cred_params.get('private', '')
-                    cred_prefs_list.append(
-                        OID_SSH_AUTH
-                        + ':2:'
-                        + 'password:SSH key passphrase:|||'
-                        + '{0}'.format(password)
-                    )
-                    cred_prefs_list.append(
-                        OID_SSH_AUTH
-                        + ':4:'
-                        + 'file:SSH private key:|||'
-                        + '{0}'.format(private)
-                    )
-                elif cred_type:
-                    self.errors.append(
-                        "Unknown Credential Type for SSH: "
-                        + cred_type
-                        + ". Use 'up' for Username + Password"
-                        + " or 'usk' for Username + SSH Key."
-                    )
-                    continue
-                else:
-                    self.errors.append(
-                        "Missing Credential Type for SSH."
-                        + " Use 'up' for Username + Password"
-                        + " or 'usk' for Username + SSH Key."
-                    )
-                    continue
-                cred_prefs_list.append('auth_port_ssh|||' + '{0}'.format(port))
-                cred_prefs_list.append(
-                    OID_SSH_AUTH
-                    + ':1:'
-                    + 'entry:SSH login '
-                    + 'name:|||{0}'.format(username)
-                )
-                cred_prefs_list.append(
-                    OID_SSH_AUTH
-                    + ':7:'
-                    + 'entry:SSH privilege login name:|||{0}'.format(
-                        priv_username
-                    )
-                )
-                cred_prefs_list.append(
-                    OID_SSH_AUTH
-                    + ':8:'
-                    + 'password:SSH privilege password:|||{0}'.format(
-                        priv_password
-                    )
-                )
+                self.check_ssh(
+                    cred_params=cred_params,
+                    cred_prefs_list=cred_prefs_list)
             # Check servic smb
             elif service == 'smb':
                 cred_prefs_list.append(
@@ -706,79 +792,10 @@ class PreferenceHandler:
                 )
             # Check service snmp
             elif service == 'snmp':
-                community = cred_params.get('community', '')
-                auth_algorithm = cred_params.get('auth_algorithm', '')
-                privacy_password = cred_params.get('privacy_password', '')
-                privacy_algorithm = cred_params.get('privacy_algorithm', '')
+                self.check_snmp(
+                    cred_params=cred_params,
+                    cred_prefs_list=cred_prefs_list)
 
-                if not privacy_algorithm:
-                    if privacy_password:
-                        self.errors.append(
-                            "When no privacy algorithm is used, the privacy"
-                            + " password also has to be empty."
-                        )
-                        continue
-                elif (
-                    not privacy_algorithm == "aes"
-                    and not privacy_algorithm == "des"
-                ):
-                    self.errors.append(
-                        "Unknown privacy algorithm used: "
-                        + privacy_algorithm
-                        + ". Use 'aes', 'des' or '' (none)."
-                    )
-                    continue
-
-                if not auth_algorithm:
-                    self.errors.append(
-                        "Missing authentication algorithm for SNMP."
-                        + " Use 'md5' or 'sha1'."
-                    )
-                    continue
-                elif (
-                    not auth_algorithm == "md5" and not auth_algorithm == "sha1"
-                ):
-                    self.errors.append(
-                        "Unknown authentication algorithm: "
-                        + auth_algorithm
-                        + ". Use 'md5' or 'sha1'."
-                    )
-                    continue
-
-                cred_prefs_list.append(
-                    OID_SNMP_AUTH
-                    + ':1:'
-                    + 'password:SNMP Community:|||'
-                    + '{0}'.format(community)
-                )
-                cred_prefs_list.append(
-                    OID_SNMP_AUTH
-                    + ':2:'
-                    + 'entry:SNMPv3 Username:|||'
-                    + '{0}'.format(username)
-                )
-                cred_prefs_list.append(
-                    OID_SNMP_AUTH + ':3:'
-                    'password:SNMPv3 Password:|||' + '{0}'.format(password)
-                )
-                cred_prefs_list.append(
-                    OID_SNMP_AUTH
-                    + ':4:'
-                    + 'radio:SNMPv3 Authentication Algorithm:|||'
-                    + '{0}'.format(auth_algorithm)
-                )
-                cred_prefs_list.append(
-                    OID_SNMP_AUTH
-                    + ':5:'
-                    + 'password:SNMPv3 Privacy Password:|||'
-                    + '{0}'.format(privacy_password)
-                )
-                cred_prefs_list.append(
-                    OID_SNMP_AUTH
-                    + ':6:'
-                    + 'radio:SNMPv3 Privacy Algorithm:|||'
-                    + '{0}'.format(privacy_algorithm)
-                )
             elif service:
                 self.errors.append(
                     "Unknown service type for credential: " + service
