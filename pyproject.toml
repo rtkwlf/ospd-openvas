@@ -54,7 +54,7 @@ paho-mqtt = "^1.5.1"
 [tool.poetry.dev-dependencies]
 pylint = "^2.8.3"
 rope = "^0.19.0"
-autohooks-plugin-pylint = "^21.6.0"
+autohooks-plugin-pylint = "^22.8.1"
 autohooks-plugin-black = {version = "^1.2.0", python = "^3.7"}
 pontos = "^21.6.3"
 black = {version = "21.6b0", python = "^3.7"}
